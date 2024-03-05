@@ -1,0 +1,39 @@
+[build-system]
+requires = [ "setuptools>=41", "wheel", "setuptools-git-versioning<2", ]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools-git-versioning]
+enabled = true
+
+[project]
+name = "clickdc"
+description = "Manage click argumetns using python dataclass"
+readme = "README.md"
+authors = [{name = "Kamil Cukrowski"}]
+license = {text = "MIT"}
+dynamic = ["version", "dependencies", "optional-dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+optional-dependencies = {test = { file = ["requirements-test.txt"] }}
+
+[project.urls]
+homepage = "https://github.com/Kamilcuk/clickdc"
+repository = "https://github.com/Kamilcuk/clickdc"
+documentation = "https://github.com/Kamilcuk/clickdc"
+
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "--tb=short"
+log_cli = true
+log_cli_level = "DEBUG"
+log_cli_format = "%(asctime)s %(levelname)s %(filename)s:%(lineno)s %(message)s"
+log_cli_date_format = "%H:%M:%S"
+testpaths = ["tests/*"]
+filterwarnings = [
+	"ignore::DeprecationWarning",
+]
+log_file_format = "%(asctime)s %(levelname)s %(filename)s:%(lineno)s %(message)s"
+log_file_level = "DEBUG"
+

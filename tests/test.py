@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+import traceback
+from typing import Any, List, Optional, Tuple
+
+import click
+from click.testing import CliRunner
+from pydantic.dataclasses import dataclass
+
+import clickdc
+
+
+def invoke(*args, **kwargs):
+    return CliRunner(mix_stderr=True).invoke(*args, **kwargs)
+
+
+def run(arg_class, input: List[str], output: Any = None, fail: int = 0):
+    @clickdc.adddc("args", arg_class)
+    def cli(args):
+        try:
+            click.echo(args)
+        except Exception:
+            traceback.print_exc()
+            raise
+
+    r = invoke(cli, input)
+    info = f"{arg_class} {input} {r.output}"
+    if fail:
+        assert r.exit_code != 0, info
+    else:
+        assert r.exit_code == 0, info
+    if output is not None:
+        assert r.output == f"{output}\n", info
+
+
+def test_command():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command()
+        cmd: int = clickdc.argument()
+
+    run(Args, ["123"], Args(_=None, cmd=123))
+
+
+def test_option_int():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command()
+        option: int = clickdc.option("-o")
+
+    run(Args, [], fail=1)
+    run(Args, ["-o", "123"], Args(_=None, option=123))
+
+
+def test_option_optional_int():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command()
+        option: Optional[int] = clickdc.option("-o")
+
+    run(Args, [], Args(_=None, option=None))
+    run(Args, ["-o", "123"], Args(_=None, option=123))
+
+
+def test_flag():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command()
+        option: bool = clickdc.option()
+
+    run(Args, [], Args(_=None, option=False))
+    run(Args, ["--option"], Args(_=None, option=True))
+
+
+def test_float_option():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command()
+        option: float = clickdc.option(default=1.0)
+
+    run(Args, [], Args(_=None, option=1.0))
+    run(Args, ["--option", "str"], fail=1)
+    run(Args, ["--option", "2.0"], Args(_=None, option=2.0))
+
+
+def test_float_argument():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command()
+        arg: float = clickdc.argument()
+
+    run(Args, [], fail=1)
+    run(Args, ["str"], fail=1)
+    run(Args, ["2.0"], Args(_=None, arg=2.0))
+
+
+def test_multiple():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command()
+        arg: Tuple[float, ...] = clickdc.argument(nargs=-1, type=float, required=True)
+
+    run(Args, [], fail=1)
+    run(Args, ["str"], fail=1)
+    run(Args, ["2.0"], Args(_=None, arg=(2.0,)))
+    run(Args, ["2.0", "3.0"], Args(_=None, arg=(2.0, 3.0)))
+
+
+def test_multiple_auto():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command()
+        arg: Tuple[float, ...] = clickdc.argument()
+
+    run(Args, ["str"], fail=1)
+    run(Args, [], Args(_=None, arg=tuple()))
+    run(Args, ["2.0"], Args(_=None, arg=(2.0,)))
+    run(Args, ["2.0", "3.0"], Args(_=None, arg=(2.0, 3.0)))
+
+
+def test_example1():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command(help="This is a command")
+        option: bool = clickdc.option(is_flag=True, help="This is an option")
+        command: int = clickdc.argument(type=int)
+
+    run(Args, ["str"], fail=1)
+    run(Args, ["1"], Args(_=None, option=False, command=1))
+
+
+def test_example2():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command(help="This is a command")
+        custom: Tuple[float, ...] = clickdc.option(type=float, multiple=True)
+        moreargs: Tuple[int, ...] = clickdc.argument(type=int, nargs=5)
+        options: Tuple[float, ...] = clickdc.option()
+        arguments: Tuple[int, ...] = clickdc.argument()
+
+    run(Args, ["1", "2", "3", "4"], fail=1)
+    run(
+        Args,
+        ["1", "2", "3", "4", "5"],
+        Args(
+            _=None,
+            custom=tuple(),
+            moreargs=(1, 2, 3, 4, 5),
+            options=tuple(),
+            arguments=tuple(),
+        ),
+    )
+    run(
+        Args,
+        ["--custom=1.0", "--options=2.0", "1", "2", "3", "4", "5", "6"],
+        Args(
+            _=None,
+            custom=(1.0,),
+            moreargs=(1, 2, 3, 4, 5),
+            options=(2.0,),
+            arguments=(6,),
+        ),
+    )
+
+
+def test_disable():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command(help="This is a command")
+        option: bool = clickdc.option("--option", is_flag=True, clickdc=None)
+        command: int = clickdc.argument("command", type=int, clickdc=None)
+
+    run(Args, [], fail=1)
+    run(Args, ["--option", "123"], Args(_=None, option=True, command=123))

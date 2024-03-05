@@ -1,0 +1,55 @@
+# .github/workflows/main.yml
+---
+
+on:
+  - push
+
+env:
+  PYTHONUNBUFFERED: 1
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        include:
+          - python: 3.12
+          - python: 3.7
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: setup python ${{ matrix.python }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python }}
+      - name: upgrade pip
+        run: pip install --upgrade pip
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: install editable package
+        run: pip install -e . && pip install -r ./requirements-test.txt
+      - name: run pyright
+        uses: jakebailey/pyright-action@v1
+      - name: run unit tests
+        run: ./unit_tests.sh
+
+  pypi-publish:
+    name: Upload release to PyPI
+    needs:
+      - test
+    if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
+    #if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/clickdc
+    permissions:
+      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: install build python package
+        run: pip install --upgrade build
+      - name: build the package
+        run: python -m build
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
