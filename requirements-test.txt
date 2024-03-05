@@ -1,2 +1,2 @@
-typing_extensions
-click
+pytest
+pydantic
