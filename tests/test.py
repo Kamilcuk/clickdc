@@ -171,3 +171,22 @@ def test_disable():
 
     run(Args, [], fail=1)
     run(Args, ["--option", "123"], Args(_=None, option=True, command=123))
+
+
+def test_alias_multiple():
+    @dataclass
+    class Args:
+        _: Any = clickdc.command()
+        sum: Tuple[int, ...] = clickdc.option(multiple=True, type=int, default=[3, 4])
+        add: bool = clickdc.option(is_flag=True)
+        add1: bool = clickdc.alias_option(aliased=dict(sum="1"))
+        add2: bool = clickdc.alias_option(aliased=dict(sum="2"))
+
+    run(Args, ["--add"], Args(_=None, sum=(3, 4), add=True, add1=False, add2=False))
+    run(Args, ["--add1"], Args(_=None, sum=(3, 4, 1), add=False, add1=True, add2=False))
+    run(Args, ["--add2"], Args(_=None, sum=(3, 4, 2), add=False, add1=False, add2=True))
+    run(
+        Args,
+        ["--add1", "--add2"],
+        Args(_=None, sum=(3, 4, 1, 2), add=False, add1=True, add2=True),
+    )

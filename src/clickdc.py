@@ -338,8 +338,24 @@ def __alias_option_callback(
     """Callback called from alias_option option."""
     if value:
         for paramname, val in aliased.items():
-            param = next(p for p in ctx.command.params if p.name == paramname)
-            param.default = val
+            try:
+                aliasparam = next(p for p in ctx.command.params if p.name == paramname)
+            except KeyError:
+                raise Exception(
+                    f"Did not found option named {paramname} aliased by {param.name}"
+                )
+            if aliasparam.multiple:
+                orig: Iterable = aliasparam.default or []  # pyright: ignore
+                try:
+                    aliasparam.default = list(orig) + [val]
+                except TypeError:
+                    raise Exception(
+                        f"alias_option {param.name} cannot append to default of param {paramname}"
+                        f" because the default is not a iterable"
+                    )
+            else:
+                aliasparam.default = val
+    return value
 
 
 def alias_option(
