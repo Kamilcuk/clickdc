@@ -1,5 +1,8 @@
-# Small library to convert dataclass into click arguments
-# and get click arguments to parse.
+"""
+Small library to convert dataclass into click arguments
+and get click arguments to parse.
+"""
+
 import dataclasses
 import functools
 import logging
@@ -9,7 +12,7 @@ from typing import (
     ClassVar,
     Dict,
     Iterable,
-    Iterator,
+    List,
     Optional,
     Tuple,
     Union,
@@ -44,6 +47,7 @@ def is_type(orig: Type, types: Iterable[Type]) -> bool:
 
 
 def is_optional(orig: Type) -> bool:
+    """Check if type is Optional[T]"""
     return (
         get_origin(orig) is Union
         and len(get_args(orig)) == 2
@@ -52,6 +56,7 @@ def is_optional(orig: Type) -> bool:
 
 
 def is_tuple_arr(orig: Type) -> bool:
+    """Check if type is Tuple[T, ...]"""
     return (
         get_origin(orig) in [Tuple, tuple]
         and len(get_args(orig)) == 2
@@ -96,10 +101,13 @@ class FieldDesc:
 
     callback: Decorator
     """click.option or click.argument"""
+
     opts: Opts
     """Options of clickdc module"""
+
     args: Tuple[Any, ...]
     """Position arguments to callback"""
+
     kwargs: Dict[str, Any]
     """Dictionary argumetns to callback"""
 
@@ -110,6 +118,7 @@ class Field(FieldDesc):
 
     field: dataclasses.Field
     """The field"""
+
     type: Type
     """Resolved type from type hints"""
 
@@ -120,7 +129,14 @@ class Field(FieldDesc):
     def is_command(self):
         return self.callback in [click.group, click.command]
 
+    def is_option(self):
+        return self.callback == click.option
+
+    def is_argument(self):
+        return self.callback == click.argument
+
     def assert_type(self, arg_class: DataclassType):
+        """Assert that the field has propert type matching click functions arguments"""
         required = self.kwargs.get("required")
         multiple = self.kwargs.get("multiple")
         nargs = self.kwargs.get("nargs")
@@ -155,7 +171,7 @@ class Field(FieldDesc):
         try:
             if self.is_command():
                 shouldbetype = NoneType
-            elif self.callback == click.option:
+            elif self.is_option():
                 if is_flag:
                     shouldbetype = bool
                 elif count:
@@ -164,7 +180,7 @@ class Field(FieldDesc):
                     shouldbetype = Tuple[shouldbetype, ...]
                 elif not required and default is None:
                     shouldbetype = Optional[shouldbetype]
-            elif self.callback == click.argument:
+            elif self.is_argument():
                 if nargs != 0:
                     shouldbetype = Tuple[shouldbetype, ...]
             if shouldbetype is not Any:
@@ -182,7 +198,7 @@ class Field(FieldDesc):
             kwargs.get(x) is None
             for x in "type required is_flag default nargs count flag_value".split()
         ):
-            if self.callback == click.option and kwargs.get("is_flag") is None:
+            if self.is_option() and kwargs.get("is_flag") is None:
                 # if the type is bool, add is_flag=True
                 if self.type in [bool, Optional[bool]]:
                     kwargs.setdefault("is_flag", True)
@@ -197,7 +213,7 @@ class Field(FieldDesc):
                 else:
                     kwargs.setdefault("required", True)
                     kwargs.setdefault("type", self.type)
-            elif self.callback == click.argument:
+            elif self.is_argument():
                 # if the type is Tuple[T, ...], add type=T, nargs=-1
                 if is_tuple_arr(self.type):
                     kwargs.setdefault("type", get_args(self.type)[0])
@@ -205,12 +221,17 @@ class Field(FieldDesc):
                 else:
                     kwargs.setdefault("type", self.type)
 
+    def dashdashoption(self) -> str:
+        """Given an option return the dash dash with the option name"""
+        name = self.field.name.replace("_", self.opts.char)
+        name = f"--{name}" if self.is_option() else name
+        return name
+
     def apply(self) -> Callable[[Callable], Callable]:
-        # Append the field name, with -- if it is an option, to the argument list.
+        """Append the field name, with -- if it is an option, to the argument list."""
         args = list(self.args)
         if self.opts.arg:
-            name = self.field.name.replace("_", self.opts.char)
-            name = f"--{name}" if self.callback == click.option else name
+            name = self.dashdashoption()
             if name not in args:
                 args = [name, *args]
         #
@@ -226,6 +247,27 @@ class Field(FieldDesc):
                 f"Error calling {self.callback.__name__}({args}, {kwargs}) for {self}"
             )
 
+    def to_args(self, obj: DataclassInstance) -> List[str]:
+        """Convert the option back to argument list using instantiated object"""
+        ret: List[str] = []
+        if self.is_option() or self.is_argument():
+            value = getattr(obj, self.name)
+            name = self.dashdashoption()
+            if self.kwargs.get("is_flag"):
+                if value:
+                    ret.append(name)
+            elif is_tuple_arr(type(value)) or isinstance(value, Iterable):
+                if value:
+                    for i in value:
+                        if self.is_option():
+                            ret.append(name)
+                        ret.append(str(i))
+            else:
+                if self.is_option():
+                    ret.append(name)
+                ret.append(str(value))
+        return ret
+
 
 ###############################################################################
 
@@ -233,20 +275,24 @@ TAG = "clickdc"
 """The metadata name used in dataclass field for arguments of this module"""
 
 
-def _myfields(arg_class) -> Iterator[Field]:
+def _myfields(arg_class: DataclassType) -> List[Field]:
     """Iterate over fields that we handle"""
     hints = get_type_hints(arg_class)
-    for field in reversed(dataclasses.fields(arg_class)):
+    ret: List[Field] = []
+    for field in dataclasses.fields(arg_class):
         desc: Optional[FieldDesc] = field.metadata.get(TAG)
         if desc:
-            yield Field(
-                desc.callback,
-                desc.opts,
-                desc.args,
-                desc.kwargs,
-                field=field,
-                type=hints[field.name],
+            ret.append(
+                Field(
+                    desc.callback,
+                    desc.opts,
+                    desc.args,
+                    desc.kwargs,
+                    field=field,
+                    type=hints[field.name],
+                )
             )
+    return ret
 
 
 def _mkfield(func: Decorator, clickdc: _OptsArg, args, kwargs):
@@ -311,7 +357,7 @@ def adddc(kw_name: str, arg_class: DataclassType):
 
         wrapper = dataclass_click_wrapper
         # For each field, apply the click.option() decorators over the function.
-        for ff in _myfields(arg_class):
+        for ff in reversed(_myfields(arg_class)):
             try:
                 call = ff.apply()
                 wrapper = call(wrapper)
@@ -324,6 +370,22 @@ def adddc(kw_name: str, arg_class: DataclassType):
         return wrapper
 
     return dataclass_click_in
+
+
+###############################################################################
+
+
+def to_args(obj: DataclassInstance) -> List[str]:
+    """Given an parsed instance of click arguments, convert it back to list of arguments"""
+    assert dataclasses.is_dataclass(obj), f"argument is not a dataclass: {obj}"
+    ret: List[str] = []
+    for ff in _myfields(type(obj)):
+        if ff.callback == click.option:
+            ret += ff.to_args(obj)
+    for ff in _myfields(type(obj)):
+        if ff.callback == click.argument:
+            ret += ff.to_args(obj)
+    return ret
 
 
 ###############################################################################
