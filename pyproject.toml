@@ -44,3 +44,4 @@ typeCheckingMode = "basic"
 reportUnnecessaryComparison = "error"
 reportUnusedParameter = false
 reportUnknownParameterType = false
+reportInvalidTypeForm = false
