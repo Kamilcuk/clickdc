@@ -298,6 +298,7 @@ def _myfields(arg_class: DataclassType) -> List[Field]:
 def _mkfield(func: Decorator, clickdc: _OptsArg, args, kwargs):
     clickdc = Opts(no=True) if clickdc is None else clickdc
     return dataclasses.field(
+        default_factory=lambda: kwargs.get("default"),
         metadata={TAG: FieldDesc(func, clickdc, args, kwargs)},
     )
 
