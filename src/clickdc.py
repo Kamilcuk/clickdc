@@ -317,10 +317,10 @@ def _mkfield(
             return default()
 
         default = make_default_class
-    elif isinstance(default, list):
+    elif isinstance(default, (dict, list)):
 
         def make_default_list(default=default):
-            return list(default)
+            return type(default)(default)
 
         default = make_default_list
     # Problem: pyright complains that default or default_factory cannot be MISSING.
