@@ -108,12 +108,7 @@ field type.
 
 # TODO
 
-The `clickdc.command` works, but I do not like the interface, it leaves a
-`=None` assigned field. Also the `click.group` is useless basically.
-
-Would be nice to add them, and the field should be `ClassVar[Any]`, so that it
-is not visible in output. It would be amazing if the field would
-be an actual `str` assigned to the value of called command.
+`dataclasses(default, default_factory)` require some questionable polishing.
 
 # Epilogue
 
