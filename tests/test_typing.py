@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 
 DIR = Path(__file__).parent.parent
+pyright = ["python3", "-m", "pyright"]
 
 
 def test_typing_check():
@@ -11,11 +12,13 @@ def test_typing_check():
 
 
 def test_typing():
-    subprocess.check_call(["pyright"], cwd=DIR)
+    subprocess.check_call(pyright, cwd=DIR)
 
 
 typing_tests = DIR / "typing_tests"
 files = list(str(x.relative_to(typing_tests)) for x in typing_tests.glob("*.py"))
+
+
 @pytest.mark.parametrize("filestr", files)
 def test_typing_file(filestr: str):
     file = Path(typing_tests / filestr)
@@ -25,7 +28,7 @@ def test_typing_file(filestr: str):
         text=True,
     ).strip()
     pp = subprocess.run(
-        ["pyright", str(file.absolute())],
+        [*pyright, str(file.absolute())],
         cwd=file.parent,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
