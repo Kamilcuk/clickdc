@@ -11,7 +11,7 @@ def test_typing_check():
 
 
 def test_typing():
-    subprocess.check_call(["basedpyright"], cwd=DIR)
+    subprocess.check_call(["pyright"], cwd=DIR)
 
 
 typing_tests = DIR / "typing_tests"
@@ -25,7 +25,7 @@ def test_typing_file(filestr: str):
         text=True,
     ).strip()
     pp = subprocess.run(
-        ["basedpyright", str(file.absolute())],
+        ["pyright", str(file.absolute())],
         cwd=file.parent,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
