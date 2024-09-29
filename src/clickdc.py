@@ -6,6 +6,7 @@ and get click arguments to parse.
 import dataclasses
 import functools
 import logging
+from inspect import isclass
 from typing import (
     Any,
     Callable,
@@ -21,7 +22,7 @@ from typing import (
 )
 
 import click
-from typing_extensions import Protocol, Type, TypeVar, get_args, get_origin
+from typing_extensions import Literal, Protocol, Type, TypeVar, get_args, get_origin
 
 try:
     from typing import NoneType  # pyright: ignore
@@ -33,9 +34,7 @@ T = TypeVar("T")
 ###############################################################################
 
 log = logging.getLogger(__name__)
-Decorator = Union[
-    type(click.group), type(click.command), type(click.option), type(click.group)
-]
+ClickFunction = Literal[click.option, click.argument]
 
 
 class DataclassInstance(Protocol):
@@ -67,6 +66,11 @@ def is_tuple_arr(orig: Type) -> bool:
     )
 
 
+def is_list(orig: Type) -> bool:
+    """Check if type is List[T]"""
+    return get_origin(orig) in [List, list] and len(get_args(orig)) == 1
+
+
 ###############################################################################
 
 
@@ -94,15 +98,11 @@ class Opts:
             self.arg = self.check = self.infer = False
 
 
-_OptsArg = Optional[Opts]
-"""User can pass None, as a shurtcut to no=True"""
-
-
 @dataclasses.dataclass(frozen=True)
 class FieldDesc:
     """Additional data put with the field in metadata"""
 
-    callback: Decorator
+    callback: ClickFunction
     """click.option or click.argument"""
 
     opts: Opts
@@ -128,9 +128,6 @@ class Field(FieldDesc):
     @property
     def name(self):
         return self.field.name
-
-    def is_command(self):
-        return self.callback in [click.group, click.command]
 
     def is_option(self):
         return self.callback == click.option
@@ -172,20 +169,18 @@ class Field(FieldDesc):
         if thetype == Any:
             return
         try:
-            if self.is_command():
-                shouldbetype = NoneType
-            elif self.is_option():
+            if self.is_option():
                 if is_flag:
                     shouldbetype = bool
                 elif count:
                     shouldbetype = int
                 if multiple:
-                    shouldbetype = Tuple[shouldbetype, ...]
+                    shouldbetype = Union[List[shouldbetype], Tuple[shouldbetype, ...]]
                 elif not required and default is None:
                     shouldbetype = Optional[shouldbetype]
             elif self.is_argument():
                 if nargs != 0:
-                    shouldbetype = Tuple[shouldbetype, ...]
+                    shouldbetype = Union[List[shouldbetype], Tuple[shouldbetype, ...]]
             if shouldbetype is not Any:
                 assert (
                     thetype is shouldbetype
@@ -199,9 +194,9 @@ class Field(FieldDesc):
         """Infer click options from the typing of the field"""
         if self.type is not Any and all(
             kwargs.get(x) is None
-            for x in "type required is_flag default nargs count flag_value".split()
+            for x in "type required is_flag nargs count flag_value".split()
         ):
-            if self.is_option() and kwargs.get("is_flag") is None:
+            if self.is_option():
                 # if the type is bool, add is_flag=True
                 if self.type in [bool, Optional[bool]]:
                     kwargs.setdefault("is_flag", True)
@@ -209,7 +204,7 @@ class Field(FieldDesc):
                 elif is_optional(self.type):
                     kwargs.setdefault("type", get_args(self.type)[0])
                 # if the type is Tuple[T, ...], add type=T, multiple=True,
-                elif is_tuple_arr(self.type):
+                elif is_tuple_arr(self.type) or is_list(self.type):
                     kwargs.setdefault("type", get_args(self.type)[0])
                     kwargs.setdefault("multiple", True)
                 # if the type is T, add type=T, required=True
@@ -218,7 +213,7 @@ class Field(FieldDesc):
                     kwargs.setdefault("type", self.type)
             elif self.is_argument():
                 # if the type is Tuple[T, ...], add type=T, nargs=-1
-                if is_tuple_arr(self.type):
+                if is_tuple_arr(self.type) or is_list(self.type):
                     kwargs.setdefault("type", get_args(self.type)[0])
                     kwargs.setdefault("nargs", -1)
                 else:
@@ -298,42 +293,40 @@ def _myfields(arg_class: DataclassType) -> List[Field]:
     return ret
 
 
-@overload
 def _mkfield(
-    func: Decorator,
-    clickdc: _OptsArg,
+    func: ClickFunction,
+    clickdc: Optional[Opts],
     args: Tuple[Any, ...],
     kwargs: Dict[str, Any],
-) -> Any: ...
-@overload
-def _mkfield(
-    func: Decorator,
-    clickdc: _OptsArg,
-    args: Tuple[Any, ...],
-    kwargs: Dict[str, Any],
-    default: Callable[[], T],
-) -> T: ...
-
-
-@overload
-def _mkfield(
-    func: Decorator,
-    clickdc: _OptsArg,
-    args: Tuple[Any, ...],
-    kwargs: Dict[str, Any],
-    default: T,
-) -> T: ...
-def _mkfield(
-    func: Decorator,
-    clickdc: _OptsArg,
-    args: Tuple[Any, ...],
-    kwargs: Dict[str, Any],
-    default: Any = dataclasses.MISSING,
-):
+    default: Any,
+) -> Any:
     clickdc = Opts(no=True) if clickdc is None else clickdc
+    # Restore default and pass them to click arguments if present.
+    if default is not dataclasses.MISSING:
+        kwargs["default"] = default
+    # If is_flag is set, the default is False if not given.
+    if default is dataclasses.MISSING and kwargs.get("is_flag") is True:
+        default = False
     metadata = {TAG: FieldDesc(func, clickdc, args, kwargs)}
+    # Handle dataclasses not wanting to be sane with default=[1,2]
+    # Problem: default is scope local variable, not preserved in lambda.
+    # Solution: double lambda that creates a lambda with locally scoped default.
+    if isclass(default):
+
+        def make_default_class(default=default):
+            return default()
+
+        default = make_default_class
+    elif isinstance(default, list):
+
+        def make_default_list(default=default):
+            return list(default)
+
+        default = make_default_list
+    # Problem: pyright complains that default or default_factory cannot be MISSING.
+    # Solution: just write an if.
     if default is dataclasses.MISSING:
-        return dataclasses.field(metadata=metadata)
+        return dataclasses.field(default=None, metadata=metadata)
     elif callable(default):
         return dataclasses.field(default_factory=default, metadata=metadata)
     else:
@@ -343,23 +336,57 @@ def _mkfield(
 ###############################################################################
 
 
-@functools.wraps(click.group)
-def group(*args, clickdc: _OptsArg = Opts(), **kwargs):
-    return _mkfield(click.group, clickdc, args, kwargs)
-
-
-@functools.wraps(click.command)
-def command(*args, clickdc: _OptsArg = Opts(), **kwargs):
-    return _mkfield(click.command, clickdc, args, kwargs)
-
-
+@overload
+def option(
+    *args,
+    is_flag: Literal[True],
+    default: Union[type(dataclasses.MISSING), bool] = dataclasses.MISSING,
+    clickdc: Optional[Opts] = Opts(),
+    **kwargs,
+) -> bool: ...
+@overload
+def option(
+    *args,
+    default: T,
+    is_flag: Literal[False, None] = None,
+    clickdc: Optional[Opts] = Opts(),
+    **kwargs,
+) -> T: ...
+@overload
+def option(
+    *args,
+    default: Callable[[], T],
+    is_flag: Literal[False, None] = None,
+    clickdc: Optional[Opts] = Opts(),
+    **kwargs,
+) -> T: ...
+@overload
+def option(
+    *args,
+    is_flag: Literal[False, None] = None,
+    clickdc: Optional[Opts] = Opts(),
+    **kwargs,
+) -> Any: ...
 @functools.wraps(click.option)
-def option(*args, clickdc: _OptsArg = Opts(), default: Any = None, **kwargs):
+def option(
+    *args,
+    is_flag: Optional[bool] = None,
+    default: Any = dataclasses.MISSING,
+    clickdc: Optional[Opts] = Opts(),
+    **kwargs,
+):
+    if is_flag is not None:
+        kwargs["is_flag"] = is_flag
     return _mkfield(click.option, clickdc, args, kwargs, default)
 
 
 @functools.wraps(click.argument)
-def argument(*args, clickdc: _OptsArg = Opts(), default: Any = None, **kwargs):
+def argument(
+    *args,
+    clickdc: Optional[Opts] = Opts(),
+    default: Any = dataclasses.MISSING,
+    **kwargs,
+) -> Any:
     return _mkfield(click.argument, clickdc, args, kwargs, default)
 
 
@@ -372,7 +399,9 @@ def _assert_annotations(arg_class: DataclassType):
 def adddc(kw_name: str, arg_class: DataclassType):
     """Add dataclass as arguments to the function.
     Pass the constructed dataclass as kw_name"""
-    assert dataclasses.is_dataclass(arg_class), f"is not a dataclass: {arg_class}"
+    assert dataclasses.is_dataclass(
+        arg_class
+    ), f"Passed argument is not a dataclass: {arg_class}"
     # _assert_annotations(arg_class)
 
     def dataclass_click_in(func: Callable) -> Callable:
@@ -381,13 +410,13 @@ def adddc(kw_name: str, arg_class: DataclassType):
             # Given command line arguments in kwargs, collect and remove the ones in our dataclass.
             arg_class_args = {}
             for ff in _myfields(arg_class):
-                name = ff.name
-                if name in kwargs:
-                    arg_class_args[name] = kwargs[name]
-                    del kwargs[name]
-                # Check for any command and group fields, and construct them with None.
-                elif ff.is_command():
-                    arg_class_args[name] = None
+                if ff.name in kwargs:
+                    arg_class_args[ff.name] = kwargs[ff.name]
+                    del kwargs[ff.name]
+                    # Problem: I want to allow list[T], because typing tuple[T, ...] is boring.
+                    # Solution: dynamically convert.
+                    # if is_tuple_arr(type(arg_class_args[ff.name])) and is_list(ff.type):
+                    #     arg_class_args[ff.name] = list(arg_class_args[ff.name])
             # Construct the dataclass and assign it to kw_name.
             kwargs[kw_name] = arg_class(**arg_class_args)
             # Call the inner function.
@@ -461,6 +490,7 @@ def __alias_option_callback(
 def alias_option(
     *param_decls: str,
     aliased: Dict[str, Any],
+    help: Optional[str] = None,
     **attrs: Any,
 ):
     """Add this to click options to have an alias for other options"""
@@ -473,7 +503,7 @@ def alias_option(
     return option(
         *param_decls,
         is_flag=True,
-        help=f"Alias to {aliasedhelp}",
+        help=help or f"Alias to {aliasedhelp}",
         callback=lambda *args: __alias_option_callback(aliased, *args),
         **attrs,
     )
