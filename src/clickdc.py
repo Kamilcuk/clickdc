@@ -17,15 +17,18 @@ from typing import (
     Tuple,
     Union,
     get_type_hints,
+    overload,
 )
 
 import click
-from typing_extensions import Protocol, Type, get_args, get_origin
+from typing_extensions import Protocol, Type, TypeVar, get_args, get_origin
 
 try:
     from typing import NoneType  # pyright: ignore
 except ImportError:
     NoneType = type(None)
+
+T = TypeVar("T")
 
 ###############################################################################
 
@@ -295,12 +298,46 @@ def _myfields(arg_class: DataclassType) -> List[Field]:
     return ret
 
 
-def _mkfield(func: Decorator, clickdc: _OptsArg, args, kwargs):
+@overload
+def _mkfield(
+    func: Decorator,
+    clickdc: _OptsArg,
+    args: Tuple[Any, ...],
+    kwargs: Dict[str, Any],
+) -> Any: ...
+@overload
+def _mkfield(
+    func: Decorator,
+    clickdc: _OptsArg,
+    args: Tuple[Any, ...],
+    kwargs: Dict[str, Any],
+    default: Callable[[], T],
+) -> T: ...
+
+
+@overload
+def _mkfield(
+    func: Decorator,
+    clickdc: _OptsArg,
+    args: Tuple[Any, ...],
+    kwargs: Dict[str, Any],
+    default: T,
+) -> T: ...
+def _mkfield(
+    func: Decorator,
+    clickdc: _OptsArg,
+    args: Tuple[Any, ...],
+    kwargs: Dict[str, Any],
+    default: Any = dataclasses.MISSING,
+):
     clickdc = Opts(no=True) if clickdc is None else clickdc
-    return dataclasses.field(
-        default_factory=lambda: kwargs.get("default"),
-        metadata={TAG: FieldDesc(func, clickdc, args, kwargs)},
-    )
+    metadata = {TAG: FieldDesc(func, clickdc, args, kwargs)}
+    if default is dataclasses.MISSING:
+        return dataclasses.field(metadata=metadata)
+    elif callable(default):
+        return dataclasses.field(default_factory=default, metadata=metadata)
+    else:
+        return dataclasses.field(default=default, metadata=metadata)
 
 
 ###############################################################################
@@ -317,13 +354,13 @@ def command(*args, clickdc: _OptsArg = Opts(), **kwargs):
 
 
 @functools.wraps(click.option)
-def option(*args, clickdc: _OptsArg = Opts(), **kwargs):
-    return _mkfield(click.option, clickdc, args, kwargs)
+def option(*args, clickdc: _OptsArg = Opts(), default: Any = None, **kwargs):
+    return _mkfield(click.option, clickdc, args, kwargs, default)
 
 
 @functools.wraps(click.argument)
-def argument(*args, clickdc: _OptsArg = Opts(), **kwargs):
-    return _mkfield(click.argument, clickdc, args, kwargs)
+def argument(*args, clickdc: _OptsArg = Opts(), default: Any = None, **kwargs):
+    return _mkfield(click.argument, clickdc, args, kwargs, default)
 
 
 def _assert_annotations(arg_class: DataclassType):

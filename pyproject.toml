@@ -38,7 +38,7 @@ log_file_format = "%(asctime)s %(levelname)s %(filename)s:%(lineno)s %(message)s
 log_file_level = "DEBUG"
 
 [tool.pyright]
-include = ["src"]
+include = ["src", "tests"]
 pythonVersion = "3.7"
 typeCheckingMode = "basic"
 reportUnnecessaryComparison = "error"
