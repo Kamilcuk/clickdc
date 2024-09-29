@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import shlex
 import traceback
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import click
 from click.testing import CliRunner
@@ -15,6 +15,7 @@ def invoke(*args, **kwargs):
 
 
 def run(arg_class, input: str, output: Any = None, fail: int = 0, toargs: bool = False):
+    @click.command(help=f"Testing {arg_class}")
     @clickdc.adddc("args", arg_class)
     def cli(args):
         try:
@@ -27,7 +28,34 @@ def run(arg_class, input: str, output: Any = None, fail: int = 0, toargs: bool =
             raise
 
     r = invoke(cli, shlex.split(input))
-    info = f"{arg_class} {input} {r.output}"
+    info = "\n".join(
+        [
+            f"Testing class {arg_class!r} using input {input!r} resulted in",
+            "--- output:",
+            f"{r.output}",
+            *(
+                [
+                    "--- stderr:",
+                    f"{r.stderr}",
+                ]
+                if r.stderr_bytes
+                else []
+            ),
+            *(
+                [
+                    "--- exception:",
+                    "\n".join(
+                        x.strip()
+                        for x in traceback.format_exception(*r.exc_info)
+                        if x.strip()
+                    ),
+                ]
+                if r.exc_info
+                else []
+            ),
+            "---",
+        ]
+    )
     if fail:
         assert r.exit_code != 0, info
     else:
@@ -36,106 +64,123 @@ def run(arg_class, input: str, output: Any = None, fail: int = 0, toargs: bool =
         assert r.output == f"{output}\n", info
 
 
+def test_internal():
+    assert clickdc.is_list(List[Any])
+    assert clickdc.is_list(List[int])
+    assert clickdc.is_tuple_arr(Tuple[Any, ...])
+
+
 def test_command():
     @dataclass
     class Args:
-        _: Any = clickdc.command()
         cmd: int = clickdc.argument()
 
-    run(Args, "123", Args(_=None, cmd=123))
+    run(Args, "123", Args(cmd=123))
 
 
 def test_option_int():
     @dataclass
     class Args:
-        _: Any = clickdc.command()
         option: int = clickdc.option("-o")
 
     run(Args, "", fail=1)
-    run(Args, "-o 123", Args(_=None, option=123))
+    run(Args, "-o 123", Args(option=123))
 
 
 def test_option_optional_int():
     @dataclass
     class Args:
-        _: Any = clickdc.command()
         option: Optional[int] = clickdc.option("-o")
 
-    run(Args, "", Args(_=None, option=None))
-    run(Args, "-o 123", Args(_=None, option=123))
+    run(Args, "", Args(option=None))
+    run(Args, "-o 123", Args(option=123))
 
 
-def test_flag():
+def test_flag_1():
     @dataclass
     class Args:
-        _: Any = clickdc.command()
         option: bool = clickdc.option()
 
-    run(Args, "", Args(_=None, option=False))
-    run(Args, "--option", Args(_=None, option=True))
+    run(Args, "", Args(option=False))
+    run(Args, "--option", Args(option=True))
+
+
+def test_flag_2():
+    @dataclass
+    class Args:
+        option: Optional[bool] = clickdc.option()
+
+    run(Args, "", Args(option=False))
+    run(Args, "--option", Args(option=True))
+
+
+def test_flag_3():
+    @dataclass
+    class Args:
+        option: bool = clickdc.option(is_flag=True)
+
+    run(Args, "", Args())
+    run(Args, "", Args(option=False))
+    run(Args, "--option", Args(option=True))
 
 
 def test_float_option():
     @dataclass
     class Args:
-        _: Any = clickdc.command()
         option: float = clickdc.option(default=1.0)
 
-    run(Args, "", Args(_=None, option=1.0))
+    run(Args, "", Args())
+    run(Args, "", Args(option=1.0))
     run(Args, "--option str", fail=1)
-    run(Args, "--option 2.0", Args(_=None, option=2.0))
+    run(Args, "--option 2.0", Args(option=2.0))
 
 
 def test_float_argument():
     @dataclass
     class Args:
-        _: Any = clickdc.command()
         arg: float = clickdc.argument()
 
     run(Args, "", fail=1)
     run(Args, "str", fail=1)
-    run(Args, "2.0", Args(_=None, arg=2.0))
+    run(Args, "2.0", Args(arg=2.0))
 
 
 def test_multiple():
     @dataclass
     class Args:
-        _: Any = clickdc.command()
         arg: Tuple[float, ...] = clickdc.argument(nargs=-1, type=float, required=True)
 
     run(Args, "", fail=1)
     run(Args, "str", fail=1)
-    run(Args, "2.0", Args(_=None, arg=(2.0,)))
-    run(Args, "2.0 3.0", Args(_=None, arg=(2.0, 3.0)))
+    run(Args, "2.0", Args(arg=(2.0,)))
+    run(Args, "2.0 3.0", Args(arg=(2.0, 3.0)))
 
 
 def test_multiple_auto():
     @dataclass
     class Args:
-        _: Any = clickdc.command()
         arg: Tuple[float, ...] = clickdc.argument()
 
     run(Args, "str", fail=1)
-    run(Args, "", Args(_=None, arg=tuple()))
-    run(Args, "2.0", Args(_=None, arg=(2.0,)))
-    run(Args, "2.0 3.0", Args(_=None, arg=(2.0, 3.0)))
+    run(Args, "", Args(arg=tuple()))
+    run(Args, "2.0", Args(arg=(2.0,)))
+    run(Args, "2.0 3.0", Args(arg=(2.0, 3.0)))
 
 
 def test_example1():
     @dataclass
     class Args:
-        _: Any = clickdc.command(help="This is a command")
         option: bool = clickdc.option(is_flag=True, help="This is an option")
         command: int = clickdc.argument(type=int)
 
     run(Args, "str", fail=1)
-    run(Args, "1", Args(_=None, option=False, command=1))
+    run(Args, "1", Args(option=False, command=1))
+    run(Args, "1", Args(command=1))
 
 
 def test_example2():
     @dataclass
     class Args:
-        _: Any = clickdc.command(help="This is a command")
         custom: Tuple[float, ...] = clickdc.option(type=float, multiple=True)
         moreargs: Tuple[int, ...] = clickdc.argument(type=int, nargs=5)
         options: Tuple[float, ...] = clickdc.option()
@@ -146,7 +191,6 @@ def test_example2():
         Args,
         "1 2 3 4 5",
         Args(
-            _=None,
             custom=tuple(),
             moreargs=(1, 2, 3, 4, 5),
             options=tuple(),
@@ -157,7 +201,6 @@ def test_example2():
         Args,
         "--custom=1.0 --options=2.0 1 2 3 4 5 6",
         Args(
-            _=None,
             custom=(1.0,),
             moreargs=(1, 2, 3, 4, 5),
             options=(2.0,),
@@ -169,37 +212,35 @@ def test_example2():
 def test_disable():
     @dataclass
     class Args:
-        _: Any = clickdc.command(help="This is a command")
         option: bool = clickdc.option("--option", is_flag=True, clickdc=None)
         command: int = clickdc.argument("command", type=int, clickdc=None)
 
     run(Args, "", fail=1)
-    run(Args, "--option 123", Args(_=None, option=True, command=123))
+    run(Args, "--option 123", Args(option=True, command=123))
 
 
 def test_alias_multiple():
     @dataclass
     class Args:
-        _: Any = clickdc.command()
-        sum: Tuple[int, ...] = clickdc.option(multiple=True, type=int, default=[3, 4])
+        sum: Tuple[int, ...] = clickdc.option(multiple=True, type=int, default=(3, 4))
         add: bool = clickdc.option(is_flag=True)
         add1: bool = clickdc.alias_option(aliased=dict(sum="1"))
         add2: bool = clickdc.alias_option(aliased=dict(sum="2"))
 
-    run(Args, "--add", Args(_=None, sum=(3, 4), add=True, add1=False, add2=False))
-    run(Args, "--add1", Args(_=None, sum=(3, 4, 1), add=False, add1=True, add2=False))
-    run(Args, "--add2", Args(_=None, sum=(3, 4, 2), add=False, add1=False, add2=True))
+    run(Args, "--add", Args(add=True))
+    run(Args, "--add", Args(sum=(3, 4), add=True, add1=False, add2=False))
+    run(Args, "--add1", Args(sum=(3, 4, 1), add=False, add1=True, add2=False))
+    run(Args, "--add2", Args(sum=(3, 4, 2), add=False, add1=False, add2=True))
     run(
         Args,
         "--add1 --add2",
-        Args(_=None, sum=(3, 4, 1, 2), add=False, add1=True, add2=True),
+        Args(sum=(3, 4, 1, 2), add=False, add1=True, add2=True),
     )
 
 
 def test_to_args():
     @dataclass
     class Args:
-        _: Any = clickdc.command()
         opta: bool = clickdc.option("-a")
         optb: Tuple[int, ...] = clickdc.option("-b")
         cmda: int = clickdc.argument()
@@ -210,3 +251,34 @@ def test_to_args():
     run(Args, "--opta 1 2 3 4", "--opta 1 2 3 4", toargs=True)
     run(Args, "-a 1 2 3 4", "--opta 1 2 3 4", toargs=True)
     run(Args, "-a -b 1 -b 2 1 2 3", "--opta --optb 1 --optb 2 1 2 3", toargs=True)
+
+
+def test_to_list_option():
+    @dataclass
+    class Args:
+        a: List[int] = clickdc.option("-a")
+
+    run(Args, "", Args(a=[]))
+    run(Args, "-a 3 -a 4", Args(a=[3, 4]))
+    run(Args, "-a 1 -a 2", Args(a=[1, 2]))
+
+
+def test_to_list_option_default():
+    @dataclass
+    class Args:
+        a: List[int] = clickdc.option("-a", default=[1, 2])
+
+    run(Args, "", Args())
+    run(Args, "", Args(a=[1, 2]))
+    run(Args, "-a 3 -a 4", Args(a=[3, 4]))
+    run(Args, "-a 1 -a 2", Args())
+
+
+def test_to_list_argument():
+    @dataclass
+    class Args:
+        cmdc: List[int] = clickdc.argument()
+
+    run(Args, "", Args([]))
+    run(Args, "3 4", Args([3, 4]))
+    run(Args, "1 2", Args([1, 2]))

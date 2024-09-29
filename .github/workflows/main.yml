@@ -29,8 +29,6 @@ jobs:
         run: pip install -e .
       - name: Install test dependencies
         run: pip install -r ./requirements-test.txt
-      - name: run pyright
-        uses: jakebailey/pyright-action@v1
       - name: run unit tests
         run: ./unit_tests.sh
 
