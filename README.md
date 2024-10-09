@@ -25,9 +25,10 @@ the `dataclass`, removing the arguments in the process.
 
 ```python
 @click.command(help="This is a command")
-@clickdc("args", Args)
+@clickdc.adddc("args", Args)
 def cli(args: Args):
    print(args)
+   print(clickdc.to_args(args))  # converts dataclass back to string '--option command'
 ```
 
 If a keyword argument `clickdc` is missing, the field name is added with
@@ -105,6 +106,8 @@ def cli(args: Args, verbose: int):
 You can inherit `dataclasses` and decorate using multiple. It works just by
 decorating the function with the proper `click.` function inferred from the
 field type.
+
+
 
 # TODO
 
