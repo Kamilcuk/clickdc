@@ -243,6 +243,8 @@ def test_to_args():
     class Args:
         opta: bool = clickdc.option("-a")
         optb: Tuple[int, ...] = clickdc.option("-b")
+        optc: Tuple[str, ...] = clickdc.option("-c")
+        optd: Optional[str] = clickdc.option("-d")
         cmda: int = clickdc.argument()
         cmdb: int = clickdc.argument()
         cmdc: Tuple[int, ...] = clickdc.argument()
@@ -250,7 +252,14 @@ def test_to_args():
     run(Args, "1 2 3 4 5 6", "1 2 3 4 5 6", toargs=True)
     run(Args, "--opta 1 2 3 4", "--opta 1 2 3 4", toargs=True)
     run(Args, "-a 1 2 3 4", "--opta 1 2 3 4", toargs=True)
-    run(Args, "-a -b 1 -b 2 1 2 3", "--opta --optb 1 --optb 2 1 2 3", toargs=True)
+    run(Args, "-a -b 1 -b 2 1 2 3", "--opta --optb=1 --optb=2 1 2 3", toargs=True)
+    run(
+        Args,
+        "-a -b 1 -b 2 -c aaa -c bbb -c ddd 1 2 3",
+        "--opta --optb=1 --optb=2 --optc=aaa --optc=bbb --optc=ddd 1 2 3",
+        toargs=True,
+    )
+    run(Args, "-d aaa -d bbb -d ccc 1 2 3", "--optd=ccc 1 2 3", toargs=True)
 
 
 def test_to_list_option():

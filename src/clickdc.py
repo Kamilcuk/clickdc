@@ -3,6 +3,7 @@ Small library to convert dataclass into click arguments
 and get click arguments to parse.
 """
 
+import abc
 import dataclasses
 import functools
 import logging
@@ -250,20 +251,18 @@ class Field(FieldDesc):
         ret: List[str] = []
         if self.is_option() or self.is_argument():
             value = getattr(obj, self.name)
-            name = self.dashdashoption()
-            if self.kwargs.get("is_flag"):
+            name = self.dashdashoption() if self.is_option() else ""
+            nameeq = (name + "=") if name else ""
+            if value is None:
+                pass
+            elif self.is_option() and self.kwargs.get("is_flag"):
                 if value:
                     ret.append(name)
-            elif is_tuple_arr(type(value)) or isinstance(value, Iterable):
-                if value:
-                    for i in value:
-                        if self.is_option():
-                            ret.append(name)
-                        ret.append(str(i))
+            elif isinstance(value, (list, tuple)):
+                for i in value:
+                    ret.append(nameeq + str(i))
             else:
-                if self.is_option():
-                    ret.append(name)
-                ret.append(str(value))
+                ret.append(nameeq + str(value))
         return ret
 
 
