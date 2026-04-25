@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import inspect
 import shlex
 import traceback
 from typing import Any, List, Optional, Tuple
@@ -11,7 +12,11 @@ import clickdc
 
 
 def invoke(*args, **kwargs):
-    return CliRunner(mix_stderr=True).invoke(*args, **kwargs)
+    # https://github.com/pallets/click/pull/2523
+    if "mix_stderr" in inspect.signature(CliRunner).parameters:
+        return CliRunner(mix_stderr=True).invoke(*args, **kwargs) # pyright: ignore[reportCallIssue]
+    else:
+        return CliRunner().invoke(*args, **kwargs)
 
 
 def run(arg_class, input: str, output: Any = None, fail: int = 0, toargs: bool = False):
